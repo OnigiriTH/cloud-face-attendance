@@ -1,0 +1,808 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ระบบเช็กชื่อผ่านใบหน้า - Face Attendance System</title>
+    <!-- Google Font: Prompt -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Prompt:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Prompt', 'sans-serif'],
+                    },
+                    colors: {
+                        brand: {
+                            50: '#eff6ff',
+                            100: '#dbeafe',
+                            500: '#3b82f6',
+                            600: '#2563eb',
+                            700: '#1d4ed8',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* กรอบเล็งกล้อง & แอนิเมชันสแกน */
+        .scan-line {
+            background: linear-gradient(to bottom, rgba(59, 130, 246, 0) 0%, rgba(59, 130, 246, 0.6) 50%, rgba(59, 130, 246, 0) 100%);
+            animation: scanAnim 2.5s infinite linear;
+        }
+        @keyframes scanAnim {
+            0% { top: 0%; opacity: 0.2; }
+            50% { opacity: 0.8; }
+            100% { top: 100%; opacity: 0.2; }
+        }
+        canvas {
+            width: 100% !important;
+            height: auto !important;
+            object-fit: cover;
+            border-radius: 0.75rem;
+            transform: scaleX(-1); /* กลับด้านภาพเสมือนกระจกเงา */
+        }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen font-sans antialiased selection:bg-blue-500 selection:text-white">
+
+    <!-- Toast แจ้งเตือนมุมขวาบน -->
+    <div id="toast" class="fixed top-5 right-5 z-50 transform transition-all duration-300 translate-y-[-120%] opacity-0 pointer-events-none">
+        <div id="toast-card" class="flex items-center gap-3 px-5 py-3 rounded-xl shadow-2xl border backdrop-blur-md">
+            <span id="toast-icon" class="text-2xl">✅</span>
+            <div>
+                <h4 id="toast-title" class="font-bold text-sm">แจ้งเตือน</h4>
+                <p id="toast-message" class="text-xs opacity-90">ข้อความแจ้งเตือน</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- แถบเมนูด้านบน (Header) -->
+    <header class="border-b border-slate-800 bg-slate-900/80 backdrop-blur sticky top-0 z-40">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+                <div class="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center text-xl shadow-lg shadow-blue-500/30">
+                    📸
+                </div>
+                <div>
+                    <h1 class="text-lg font-bold bg-gradient-to-r from-blue-400 to-indigo-300 bg-clip-text text-transparent">
+                        ระบบเช็กชื่อผ่านใบหน้าอัจฉริยะ
+                    </h1>
+                    <p class="text-xs text-slate-400">เทคโนโลยีกลุ่มเมฆ (Cloud Computing) - Google Teachable Machine</p>
+                </div>
+            </div>
+            <div class="flex items-center space-x-2">
+                <span id="current-date-time" class="text-xs px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 border border-slate-700/60 font-mono">
+                    --:--:--
+                </span>
+            </div>
+        </div>
+    </header>
+
+    <!-- พื้นที่หลัก (Main Content) -->
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        
+        <!-- แถบตั้งค่า Google Apps Script (ย่อ/ขยายได้) -->
+        <div class="mb-6 bg-slate-900/90 border border-slate-800 rounded-2xl p-4 shadow-sm">
+            <div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                <div class="flex items-center gap-3">
+                    <span class="p-2 rounded-lg bg-emerald-500/10 text-emerald-400 text-lg border border-emerald-500/20">☁️</span>
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <h2 class="text-sm font-semibold text-white">การเชื่อมต่อ Google Sheets (Cloud Backend)</h2>
+                            <span id="cloud-status-badge" class="text-[11px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                                บันทึกในเครื่อง (ยังไม่ได้ระบุลิงก์)
+                            </span>
+                        </div>
+                        <p class="text-xs text-slate-400">วาง URL เว็บแอป Google Apps Script เพื่อให้ข้อมูลบันทึกลง Google Sheet อัตโนมัติ</p>
+                    </div>
+                </div>
+                <div class="flex w-full md:w-auto items-center gap-2">
+                    <input type="text" id="gas-url-input" placeholder="https://script.google.com/macros/s/.../exec" 
+                           class="w-full md:w-96 text-xs bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono">
+                    <button onclick="saveGasUrl()" class="whitespace-nowrap px-4 py-2 bg-blue-600 hover:bg-blue-500 text-xs font-medium text-white rounded-xl transition shadow-md shadow-blue-600/20">
+                        บันทึก URL
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+            <!-- ฝั่งซ้าย: กล้อง + สแกนเนอร์ AI (5 คอลัมน์) -->
+            <div class="lg:col-span-5 space-y-5">
+                
+                <!-- กล่องแสดงภาพจากกล้อง -->
+                <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 shadow-lg relative overflow-hidden">
+                    <div class="flex items-center justify-between mb-3">
+                        <div class="flex items-center space-x-2">
+                            <span id="camera-status-dot" class="w-2.5 h-2.5 rounded-full bg-slate-500"></span>
+                            <span id="camera-status-text" class="text-xs font-medium text-slate-300">กล้องยังไม่ทำงาน</span>
+                        </div>
+                        <button onclick="toggleSound()" id="sound-btn" class="text-xs px-2.5 py-1 rounded-lg bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 transition flex items-center gap-1.5">
+                            <span id="sound-icon">🔊</span>
+                            <span id="sound-text">เสียง: เปิด</span>
+                        </button>
+                    </div>
+
+                    <!-- พื้นที่แสดงกล้อง (Viewport) -->
+                    <div class="relative bg-slate-950 rounded-xl overflow-hidden aspect-square flex items-center justify-center border border-slate-800" id="video-wrapper">
+                        <!-- Canvas ของ Teachable Machine จะถูกเพิ่มเข้ามาที่นี่ -->
+                        <div id="webcam-container" class="w-full h-full flex items-center justify-center">
+                            <!-- ข้อความตอนยังไม่เปิดกล้อง -->
+                            <div id="start-prompt" class="text-center p-6 space-y-3">
+                                <div class="w-16 h-16 mx-auto rounded-full bg-slate-800/80 border border-slate-700 flex items-center justify-center text-3xl">
+                                    📷
+                                </div>
+                                <p class="text-sm font-medium text-slate-300">กดปุ่มด้านล่างเพื่อเริ่มเปิดกล้อง</p>
+                                <p class="text-xs text-slate-500">กรุณาอนุญาต (Allow) การใช้งานกล้องบนเบราว์เซอร์</p>
+                            </div>
+                        </div>
+
+                        <!-- กรอบเล็งใบหน้า (Overlay Target) -->
+                        <div id="target-box" class="absolute inset-8 border-2 border-dashed border-blue-500/40 rounded-2xl pointer-events-none hidden transition-all duration-300">
+                            <!-- มุมทั้ง 4 -->
+                            <div class="absolute -top-1 -left-1 w-5 h-5 border-t-4 border-l-4 border-blue-400 rounded-tl"></div>
+                            <div class="absolute -top-1 -right-1 w-5 h-5 border-t-4 border-r-4 border-blue-400 rounded-tr"></div>
+                            <div class="absolute -bottom-1 -left-1 w-5 h-5 border-b-4 border-l-4 border-blue-400 rounded-bl"></div>
+                            <div class="absolute -bottom-1 -right-1 w-5 h-5 border-b-4 border-r-4 border-blue-400 rounded-br"></div>
+                            <!-- เส้นแอนิเมชันสแกน -->
+                            <div class="absolute left-0 right-0 h-10 scan-line pointer-events-none"></div>
+                        </div>
+
+                        <!-- ป้ายสถานะลอยบนกล้อง (HUD Badge) -->
+                        <div id="hud-badge" class="absolute bottom-4 left-4 right-4 bg-slate-900/80 backdrop-blur-md border border-slate-700/80 rounded-xl p-2.5 text-center hidden">
+                            <p id="hud-text" class="text-xs font-semibold text-slate-200">พร้อมเริ่มตรวจจับใบหน้า</p>
+                        </div>
+                    </div>
+
+                    <!-- แถบ Progress ยืนยันตัวตน (Hold 1.5 วินาที) -->
+                    <div class="mt-4 space-y-1.5">
+                        <div class="flex justify-between items-center text-xs">
+                            <span class="text-slate-400 flex items-center gap-1">
+                                <span>⏱️</span> ยืนยันตัวตน (มองค้าง 1.5 วินาที)
+                            </span>
+                            <span id="hold-percentage" class="font-mono font-semibold text-blue-400">0%</span>
+                        </div>
+                        <div class="w-full bg-slate-800 rounded-full h-2.5 overflow-hidden border border-slate-700/60">
+                            <div id="hold-progress-bar" class="bg-gradient-to-r from-blue-500 to-emerald-400 h-2.5 rounded-full w-0 transition-all duration-75"></div>
+                        </div>
+                    </div>
+
+                    <!-- ปุ่มควบคุมกล้อง -->
+                    <div class="mt-4 grid grid-cols-2 gap-3">
+                        <button id="btn-start" onclick="init()" class="py-2.5 px-4 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white font-medium text-sm rounded-xl transition shadow-lg shadow-blue-600/30 flex items-center justify-center gap-2">
+                            <span>▶</span> เริ่มเปิดกล้อง
+                        </button>
+                        <button id="btn-stop" onclick="stopCamera()" disabled class="py-2.5 px-4 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed text-slate-300 font-medium text-sm rounded-xl border border-slate-700 transition flex items-center justify-center gap-2">
+                            <span>⏹</span> หยุดกล้อง
+                        </button>
+                    </div>
+                </div>
+
+                <!-- ค่าความมั่นใจ AI แต่ละคน (Real-time Confidence) -->
+                <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 shadow-lg">
+                    <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-2">
+                        <span>🤖</span> ความมั่นใจในการทำนาย (Confidence)
+                    </h3>
+                    <div id="label-container" class="space-y-3">
+                        <p class="text-xs text-slate-500 italic">จะแสดงข้อมูลเมื่อกล้องเริ่มทำงาน...</p>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- ฝั่งขวา: ตารางรายชื่อผู้เข้าเรียน + สถิติ (7 คอลัมน์) -->
+            <div class="lg:col-span-7 space-y-5">
+                
+                <!-- การ์ดสรุปสถิติ 3 ช่อง -->
+                <div class="grid grid-cols-3 gap-3">
+                    <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-4">
+                        <p class="text-xs text-slate-400">เช็กชื่อแล้ววันนี้</p>
+                        <p id="stat-checked-count" class="text-2xl font-bold text-emerald-400 mt-1">0</p>
+                    </div>
+                    <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-4">
+                        <p class="text-xs text-slate-400">บุคคลในโมเดล</p>
+                        <p id="stat-model-classes" class="text-2xl font-bold text-blue-400 mt-1">3 คน</p>
+                    </div>
+                    <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-4">
+                        <p class="text-xs text-slate-400">สถานะบันทึก Cloud</p>
+                        <p id="stat-cloud-sync" class="text-sm font-semibold text-slate-300 mt-2">พร้อมทำงาน</p>
+                    </div>
+                </div>
+
+                <!-- ตารางบันทึกการเช็กชื่อ -->
+                <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-5 shadow-lg">
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 pb-3 border-b border-slate-800">
+                        <div>
+                            <h3 class="text-base font-bold text-white flex items-center gap-2">
+                                <span>📋</span> รายชื่อผู้เข้าเรียนวันนี้
+                            </h3>
+                            <p class="text-xs text-slate-400">บันทึกอัตโนมัติเมื่อตรวจพบใบหน้าด้วยความมั่นใจ ≥ 90%</p>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <button onclick="exportToCSV()" class="px-3 py-1.5 text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded-xl transition flex items-center gap-1.5">
+                                <span>📥</span> ดาวน์โหลด CSV
+                            </button>
+                            <button onclick="clearTodayAttendance()" class="px-3 py-1.5 text-xs bg-red-950/40 hover:bg-red-900/60 text-red-300 border border-red-800/40 rounded-xl transition flex items-center gap-1.5">
+                                <span>🗑️</span> ล้างข้อมูลทดสอบ
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- ตารางข้อมูล -->
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-xs">
+                            <thead>
+                                <tr class="text-slate-400 border-b border-slate-800 pb-2">
+                                    <th class="py-2.5 px-3 font-semibold text-center w-12">ลำดับ</th>
+                                    <th class="py-2.5 px-3 font-semibold">ชื่อผู้เข้าเรียน</th>
+                                    <th class="py-2.5 px-3 font-semibold text-center">เวลาที่เช็กชื่อ</th>
+                                    <th class="py-2.5 px-3 font-semibold text-center">ความมั่นใจ</th>
+                                    <th class="py-2.5 px-3 font-semibold text-center">สถานะ</th>
+                                    <th class="py-2.5 px-3 font-semibold text-center">Cloud Sync</th>
+                                </tr>
+                            </thead>
+                            <tbody id="attendance-table-body" class="divide-y divide-slate-800/60">
+                                <tr id="empty-table-row">
+                                    <td colspan="6" class="text-center py-10 text-slate-500">
+                                        <div class="space-y-1">
+                                            <p class="text-2xl">🕒</p>
+                                            <p>ยังไม่มีรายการเช็กชื่อในวันนี้</p>
+                                            <p class="text-[11px] text-slate-600">เปิดกล้องและมองหน้าตรงเพื่อทำการเช็กชื่อ</p>
+                                        </div>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- คำแนะนำการใช้งานสำหรับวิชาเทคโนโลยีกลุ่มเมฆ -->
+                <div class="bg-blue-950/30 border border-blue-900/40 rounded-2xl p-4 text-xs text-blue-200/80 space-y-1.5">
+                    <p class="font-semibold text-blue-300 flex items-center gap-1.5">
+                        <span>💡</span> คำแนะนำสำหรับงานส่งอาจารย์:
+                    </p>
+                    <ul class="list-disc list-inside space-y-1 text-slate-400 pl-1">
+                        <li>สามารถเทรนเพิ่มคนใหม่ใน <strong>Teachable Machine</strong> แล้วนำ URL มาเปลี่ยนที่โค้ดเพื่อเพิ่มจำนวนนักศึกษาได้ทันที</li>
+                        <li>ระบบจะทำการป้องกันการเช็กชื่อซ้ำ (คนเดิมจะไม่ถูกนับซ้ำในวันเดียวกัน)</li>
+                        <li>ถ้าเชื่อมต่อ Google Apps Script ข้อมูลจะวิ่งตรงเข้าสู่ Google Sheets แบบ Real-time ทันที</li>
+                    </ul>
+                </div>
+
+            </div>
+
+        </div>
+    </main>
+
+    <!-- ไลบรารีภายนอก -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
+
+    <!-- สคริปต์การทำงานของระบบ -->
+    <script type="text/javascript">
+        // ลิงก์โมเดล Google Teachable Machine เดิมของคุณ
+        const URL = "https://teachablemachine.withgoogle.com/models/LWhu2Ym3I/";
+
+        // ตัวแปรการทำงานหลัก
+        let model, webcam, maxPredictions;
+        let isRunning = false;
+        let soundEnabled = true;
+
+        // ตัวแปรสำหรับเงื่อนไขการสแกน (Hold Time)
+        const CONFIDENCE_THRESHOLD = 0.90; // ความมั่นใจ 90% ขึ้นไป
+        const HOLD_DURATION_MS = 1500;       // ต้องมองค้างไว้ 1.5 วินาที
+        let currentTargetName = null;
+        let holdStartTime = null;
+
+        // โครงสร้างข้อมูลรายชื่อวันนี้ (เก็บใน LocalStorage ป้องกันข้อมูลหายเวลารีเฟรช)
+        let attendanceList = [];
+        let checkedInNamesToday = new Set();
+
+        // โหลดค่าตอนเปิดหน้าเว็บ
+        window.addEventListener('DOMContentLoaded', () => {
+            loadSavedGasUrl();
+            loadAttendanceHistory();
+            startClock();
+        });
+
+        // 1. นาฬิกาแสดงเวลาปัจจุบัน
+        function startClock() {
+            function update() {
+                const now = new Date();
+                const timeStr = now.toLocaleTimeString('th-TH');
+                const dateStr = now.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' });
+                document.getElementById('current-date-time').innerText = `${dateStr} ${timeStr}`;
+            }
+            update();
+            setInterval(update, 1000);
+        }
+
+        // 2. จัดการ Google Apps Script URL
+        function loadSavedGasUrl() {
+            const savedUrl = localStorage.getItem('gas_attendance_url') || '';
+            const input = document.getElementById('gas-url-input');
+            input.value = savedUrl;
+            updateCloudStatusBadge(savedUrl);
+        }
+
+        function saveGasUrl() {
+            const input = document.getElementById('gas-url-input');
+            const url = input.value.trim();
+            localStorage.setItem('gas_attendance_url', url);
+            updateCloudStatusBadge(url);
+            showToast("บันทึก URL สำเร็จ", "ระบบจะส่งข้อมูลไปยัง Google Sheet นี้", "success");
+        }
+
+        function updateCloudStatusBadge(url) {
+            const badge = document.getElementById('cloud-status-badge');
+            const stat = document.getElementById('stat-cloud-sync');
+            if (url && url.startsWith('http')) {
+                badge.className = "text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30";
+                badge.innerText = "เชื่อมต่อ Google Sheet แล้ว";
+                stat.innerText = "เชื่อมต่อแล้ว";
+                stat.className = "text-sm font-semibold text-emerald-400 mt-2";
+            } else {
+                badge.className = "text-[11px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30";
+                badge.innerText = "บันทึกในเครื่อง (ยังไม่ได้ระบุลิงก์)";
+                stat.innerText = "ยังไม่ระบุลิงก์";
+                stat.className = "text-sm font-semibold text-amber-400 mt-2";
+            }
+        }
+
+        // 3. เริ่มต้นโมเดลและเปิดกล้องเว็บแคม
+        async function init() {
+            const btnStart = document.getElementById('btn-start');
+            btnStart.disabled = true;
+            btnStart.innerHTML = `<span class="animate-spin inline-block">⏳</span> กำลังโหลดโมเดล...`;
+
+            try {
+                const modelURL = URL + "model.json";
+                const metadataURL = URL + "metadata.json";
+
+                // โหลดโมเดล Teachable Machine
+                model = await tmImage.load(modelURL, metadataURL);
+                maxPredictions = model.getTotalClasses();
+
+                document.getElementById('stat-model-classes').innerText = `${maxPredictions} คน`;
+
+                // ตั้งค่ากล้องเว็บแคม
+                const flip = true;
+                webcam = new tmImage.Webcam(360, 360, flip);
+                await webcam.setup();
+                await webcam.play();
+
+                isRunning = true;
+                window.requestAnimationFrame(loop);
+
+                // แสดงผลใน DOM
+                const container = document.getElementById("webcam-container");
+                container.innerHTML = "";
+                container.appendChild(webcam.canvas);
+
+                document.getElementById('start-prompt')?.remove();
+                document.getElementById('target-box').classList.remove('hidden');
+                document.getElementById('hud-badge').classList.remove('hidden');
+
+                // อัปเดตสถานะปุ่ม
+                document.getElementById('camera-status-dot').className = "w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse";
+                document.getElementById('camera-status-text').innerText = "กล้องทำงานปกติ (ตรวจจับใบหน้า)";
+                btnStart.classList.add('hidden');
+                document.getElementById('btn-stop').disabled = false;
+
+                // สร้างแถบ Confidence สำหรับแต่ละ Label
+                initLabelBars();
+                showToast("เปิดกล้องสำเร็จ", "ระบบพร้อมทำการเช็กชื่อแล้ว", "success");
+
+            } catch (err) {
+                console.error(err);
+                alert("ไม่สามารถเข้าถึงกล้องหรือโหลดโมเดลได้: " + err.message);
+                btnStart.disabled = false;
+                btnStart.innerHTML = `<span>▶</span> เริ่มเปิดกล้อง`;
+            }
+        }
+
+        // หยุดกล้อง
+        function stopCamera() {
+            if (webcam) {
+                webcam.stop();
+            }
+            isRunning = false;
+            document.getElementById('camera-status-dot').className = "w-2.5 h-2.5 rounded-full bg-slate-500";
+            document.getElementById('camera-status-text').innerText = "กล้องหยุดทำงานแล้ว";
+            document.getElementById('target-box').classList.add('hidden');
+            document.getElementById('hud-badge').classList.add('hidden');
+            
+            const btnStart = document.getElementById('btn-start');
+            btnStart.disabled = false;
+            btnStart.classList.remove('hidden');
+            btnStart.innerHTML = `<span>▶</span> เริ่มเปิดกล้อง`;
+            document.getElementById('btn-stop').disabled = true;
+
+            resetHoldProgress();
+        }
+
+        // 4. ลูปการสแกนและประมวลผล
+        async function loop() {
+            if (!isRunning) return;
+            webcam.update();
+            await predict();
+            window.requestAnimationFrame(loop);
+        }
+
+        // สร้าง HTML แถบวัดผล Confidence
+        function initLabelBars() {
+            const labelContainer = document.getElementById("label-container");
+            labelContainer.innerHTML = "";
+            for (let i = 0; i < maxPredictions; i++) {
+                const label = model.getClassLabels()[i];
+                const div = document.createElement("div");
+                div.className = "space-y-1";
+                div.innerHTML = `
+                    <div class="flex justify-between text-xs">
+                        <span class="font-medium text-slate-300" id="label-name-${i}">${label}</span>
+                        <span class="font-mono text-slate-400" id="label-val-${i}">0%</span>
+                    </div>
+                    <div class="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
+                        <div id="label-bar-${i}" class="bg-blue-500 h-1.5 rounded-full w-0 transition-all duration-100"></div>
+                    </div>
+                `;
+                labelContainer.appendChild(div);
+            }
+        }
+
+        // ฟังก์ชันประมวลผลการทำนายและตรรกะเช็กชื่อ
+        async function predict() {
+            const prediction = await model.predict(webcam.canvas);
+            
+            let highestProb = 0;
+            let highestClass = "";
+
+            // อัปเดตแถบวัดผล Confidence บนหน้าจอ
+            for (let i = 0; i < maxPredictions; i++) {
+                const prob = prediction[i].probability;
+                const className = prediction[i].className;
+                const pct = (prob * 100).toFixed(0);
+
+                const bar = document.getElementById(`label-bar-${i}`);
+                const val = document.getElementById(`label-val-${i}`);
+
+                if (bar && val) {
+                    bar.style.width = `${pct}%`;
+                    val.innerText = `${pct}%`;
+
+                    if (prob >= CONFIDENCE_THRESHOLD) {
+                        bar.className = "bg-emerald-400 h-1.5 rounded-full transition-all duration-100";
+                    } else if (prob >= 0.5) {
+                        bar.className = "bg-amber-400 h-1.5 rounded-full transition-all duration-100";
+                    } else {
+                        bar.className = "bg-slate-600 h-1.5 rounded-full transition-all duration-100";
+                    }
+                }
+
+                if (prob > highestProb) {
+                    highestProb = prob;
+                    highestClass = className;
+                }
+            }
+
+            // ตรรกะการเช็กชื่อ (Logic & Hold Timing)
+            handleAttendanceLogic(highestClass, highestProb);
+        }
+
+        function handleAttendanceLogic(className, probability) {
+            const hudText = document.getElementById('hud-text');
+            const targetBox = document.getElementById('target-box');
+
+            // 1. ถ้าความมั่นใจน้อยกว่า 90% ให้รีเซ็ตเวลา
+            if (probability < CONFIDENCE_THRESHOLD) {
+                resetHoldProgress();
+                hudText.innerText = "กำลังค้นหาใบหน้า...";
+                hudText.className = "text-xs font-semibold text-slate-400";
+                targetBox.classList.remove('border-emerald-500', 'border-amber-500');
+                targetBox.classList.add('border-blue-500/40');
+                return;
+            }
+
+            // 2. ถ้าคนนี้เช็กชื่อไปแล้วในวันนี้
+            if (checkedInNamesToday.has(className)) {
+                resetHoldProgress();
+                hudText.innerHTML = `คุณ <span class="text-amber-400 font-bold">${className}</span> เช็กชื่อเรียบร้อยแล้วในวันนี้`;
+                hudText.className = "text-xs font-semibold text-amber-300";
+                targetBox.classList.remove('border-blue-500/40', 'border-emerald-500');
+                targetBox.classList.add('border-amber-500');
+                return;
+            }
+
+            // 3. ถ้าเป็นคนใหม่ที่ยังไม่ได้เช็กชื่อ
+            targetBox.classList.remove('border-blue-500/40', 'border-amber-500');
+            targetBox.classList.add('border-emerald-500');
+
+            if (currentTargetName !== className) {
+                // เพิ่งเริ่มตรวจพบคนใหม่
+                currentTargetName = className;
+                holdStartTime = Date.now();
+            }
+
+            const elapsed = Date.now() - holdStartTime;
+            const progress = Math.min(100, Math.floor((elapsed / HOLD_DURATION_MS) * 100));
+
+            // อัปเดตแถบ Progress
+            document.getElementById('hold-progress-bar').style.width = `${progress}%`;
+            document.getElementById('hold-percentage').innerText = `${progress}%`;
+            hudText.innerHTML = `ตรวจพบ: <span class="text-emerald-400 font-bold">${className}</span> (${(probability * 100).toFixed(0)}%) มองตรงค้างไว้...`;
+
+            // เมื่อมองค้างครบ 1.5 วินาที -> บันทึกการเช็กชื่อ!
+            if (elapsed >= HOLD_DURATION_MS) {
+                performCheckIn(className, (probability * 100).toFixed(0));
+                resetHoldProgress();
+            }
+        }
+
+        function resetHoldProgress() {
+            currentTargetName = null;
+            holdStartTime = null;
+            document.getElementById('hold-progress-bar').style.width = "0%";
+            document.getElementById('hold-percentage').innerText = "0%";
+        }
+
+        // 5. บันทึกการเช็กชื่อ
+        async function performCheckIn(name, confidence) {
+            const now = new Date();
+            const timeStr = now.toLocaleTimeString('th-TH');
+            const dateStr = now.toLocaleDateString('th-TH', { day: '2-digit', month: '2-digit', year: 'numeric' });
+
+            const newRecord = {
+                id: Date.now(),
+                name: name,
+                date: dateStr,
+                time: timeStr,
+                confidence: confidence,
+                status: "มาเรียน",
+                cloudSynced: false
+            };
+
+            // บันทึกเข้า Memory และ LocalStorage
+            attendanceList.unshift(newRecord);
+            checkedInNamesToday.add(name);
+            saveAttendanceHistory();
+
+            // เล่นเสียงแจ้งเตือน
+            triggerFeedbackAudio(name);
+
+            // แจ้งเตือน Toast
+            showToast("เช็กชื่อสำเร็จ! 🎉", `ยินดีต้อนรับคุณ ${name} (${timeStr})`, "success");
+
+            // อัปเดตตารางหน้าเว็บทันที
+            renderAttendanceTable();
+
+            // ส่งข้อมูลไปยัง Google Apps Script (Cloud)
+            syncToGoogleSheets(newRecord);
+        }
+
+        // 6. ส่งข้อมูลไปยัง Google Sheets ผ่าน Google Apps Script API
+        async function syncToGoogleSheets(record) {
+            const gasUrl = (localStorage.getItem('gas_attendance_url') || '').trim();
+            if (!gasUrl) {
+                console.log("ไม่มี URL Google Apps Script บันทึกในเครื่องเท่านั้น");
+                return;
+            }
+
+            try {
+                // ส่งคำขอแบบ POST (โหมด no-cors เพื่อให้ทะลุข้อจำกัดของ Google Apps Script)
+                const payload = {
+                    name: record.name,
+                    date: record.date,
+                    time: record.time,
+                    confidence: record.confidence,
+                    status: record.status
+                };
+
+                await fetch(gasUrl, {
+                    method: 'POST',
+                    mode: 'no-cors',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                // อัปเดตสถานะการซิงค์
+                record.cloudSynced = true;
+                saveAttendanceHistory();
+                renderAttendanceTable();
+                console.log("ส่งข้อมูลขึ้น Google Sheets สำเร็จ:", record.name);
+
+            } catch (err) {
+                console.warn("ไม่สามารถส่งข้อมูลไปยัง Google Sheets ได้:", err);
+            }
+        }
+
+        // 7. จัดการตารางและการแสดงผล
+        function renderAttendanceTable() {
+            const tbody = document.getElementById('attendance-table-body');
+            const countEl = document.getElementById('stat-checked-count');
+            countEl.innerText = attendanceList.length;
+
+            if (attendanceList.length === 0) {
+                tbody.innerHTML = `
+                    <tr id="empty-table-row">
+                        <td colspan="6" class="text-center py-10 text-slate-500">
+                            <div class="space-y-1">
+                                <p class="text-2xl">🕒</p>
+                                <p>ยังไม่มีรายการเช็กชื่อในวันนี้</p>
+                                <p class="text-[11px] text-slate-600">เปิดกล้องและมองหน้าตรงเพื่อทำการเช็กชื่อ</p>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+
+            tbody.innerHTML = "";
+            attendanceList.forEach((item, index) => {
+                const tr = document.createElement("tr");
+                tr.className = "hover:bg-slate-800/40 transition border-b border-slate-800/60";
+                
+                const syncBadge = item.cloudSynced 
+                    ? `<span class="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px]">บันทึกแล้ว</span>`
+                    : `<span class="px-2 py-0.5 rounded-full bg-slate-700/60 text-slate-300 border border-slate-600/40 text-[10px]">ในเครื่อง</span>`;
+
+                tr.innerHTML = `
+                    <td class="py-3 px-3 text-center text-slate-400 font-mono">${index + 1}</td>
+                    <td class="py-3 px-3 font-semibold text-white flex items-center gap-2">
+                        <span class="w-6 h-6 rounded-full bg-blue-600/40 text-blue-300 flex items-center justify-center text-[10px] font-bold">
+                            ${item.name.charAt(0)}
+                        </span>
+                        ${item.name}
+                    </td>
+                    <td class="py-3 px-3 text-center text-slate-300 font-mono">${item.time}</td>
+                    <td class="py-3 px-3 text-center">
+                        <span class="font-mono text-emerald-400 font-medium">${item.confidence}%</span>
+                    </td>
+                    <td class="py-3 px-3 text-center">
+                        <span class="px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30 text-[11px]">
+                            ${item.status}
+                        </span>
+                    </td>
+                    <td class="py-3 px-3 text-center">${syncBadge}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        // 8. จัดการเสียงสังเคราะห์ (TTS + Chime)
+        function toggleSound() {
+            soundEnabled = !soundEnabled;
+            const icon = document.getElementById('sound-icon');
+            const text = document.getElementById('sound-text');
+            if (soundEnabled) {
+                icon.innerText = "🔊";
+                text.innerText = "เสียง: เปิด";
+            } else {
+                icon.innerText = "🔇";
+                text.innerText = "เสียง: ปิด";
+            }
+        }
+
+        function triggerFeedbackAudio(name) {
+            if (!soundEnabled) return;
+
+            // เสียงติ๊ง (Web Audio API Synthesizer)
+            try {
+                const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+
+                osc.type = "sine";
+                osc.frequency.setValueAtTime(659.25, ctx.currentTime); // E5
+                osc.frequency.setValueAtTime(880, ctx.currentTime + 0.1); // A5
+
+                gain.gain.setValueAtTime(0.3, ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+
+                osc.start(ctx.currentTime);
+                osc.stop(ctx.currentTime + 0.4);
+            } catch (e) {
+                console.warn("Audio Context error:", e);
+            }
+
+            // เสียงพูดสังเคราะห์ภาษาไทย (Web Speech API)
+            if ('speechSynthesis' in window) {
+                try {
+                    window.speechSynthesis.cancel();
+                    const text = `เช็กชื่อสำเร็จ คุณ ${name}`;
+                    const utterance = new SpeechSynthesisUtterance(text);
+                    utterance.lang = 'th-TH';
+                    utterance.rate = 1.05;
+                    window.speechSynthesis.speak(utterance);
+                } catch (e) {
+                    console.warn("TTS error:", e);
+                }
+            }
+        }
+
+        // 9. กล่องแจ้งเตือน Toast
+        function showToast(title, message, type = "success") {
+            const toast = document.getElementById('toast');
+            const card = document.getElementById('toast-card');
+            const icon = document.getElementById('toast-icon');
+            const titleEl = document.getElementById('toast-title');
+            const msgEl = document.getElementById('toast-message');
+
+            titleEl.innerText = title;
+            msgEl.innerText = message;
+
+            if (type === "success") {
+                icon.innerText = "✅";
+                card.className = "flex items-center gap-3 px-5 py-3 rounded-xl shadow-2xl border backdrop-blur-md bg-emerald-950/90 border-emerald-600/50 text-emerald-100";
+            } else {
+                icon.innerText = "⚠️";
+                card.className = "flex items-center gap-3 px-5 py-3 rounded-xl shadow-2xl border backdrop-blur-md bg-amber-950/90 border-amber-600/50 text-amber-100";
+            }
+
+            toast.classList.remove('translate-y-[-120%]', 'opacity-0');
+            setTimeout(() => {
+                toast.classList.add('translate-y-[-120%]', 'opacity-0');
+            }, 3500);
+        }
+
+        // 10. บันทึกและดึงข้อมูลจาก LocalStorage
+        function saveAttendanceHistory() {
+            localStorage.setItem('face_attendance_records', JSON.stringify(attendanceList));
+        }
+
+        function loadAttendanceHistory() {
+            const saved = localStorage.getItem('face_attendance_records');
+            if (saved) {
+                try {
+                    attendanceList = JSON.parse(saved);
+                    checkedInNamesToday = new Set(attendanceList.map(r => r.name));
+                    renderAttendanceTable();
+                } catch (e) {
+                    attendanceList = [];
+                }
+            }
+        }
+
+        function clearTodayAttendance() {
+            if (confirm("คุณแน่ใจหรือไม่ว่าต้องการล้างข้อมูลการเช็กชื่อทั้งหมด เพื่อทดสอบใหม่?")) {
+                attendanceList = [];
+                checkedInNamesToday.clear();
+                localStorage.removeItem('face_attendance_records');
+                renderAttendanceTable();
+                resetHoldProgress();
+                showToast("ล้างข้อมูลสำเร็จ", "พร้อมสำหรับการทดสอบรอบใหม่", "success");
+            }
+        }
+
+        // 11. ดาวน์โหลดเป็นไฟล์ CSV
+        function exportToCSV() {
+            if (attendanceList.length === 0) {
+                alert("ไม่มีข้อมูลสำหรับส่งออก");
+                return;
+            }
+            let csv = "\uFEFFลำดับ,วันที่,เวลา,ชื่อ,ความมั่นใจ,สถานะ\n";
+            attendanceList.forEach((r, idx) => {
+                csv += `${idx + 1},"${r.date}","${r.time}","${r.name}","${r.confidence}%","${r.status}"\n`;
+            });
+
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement("a");
+            const url = URL.createObjectURL(blob);
+            link.setAttribute("href", url);
+            link.setAttribute("download", `attendance_${new Date().toISOString().slice(0, 10)}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+    </script>
+</body>
+</html>
